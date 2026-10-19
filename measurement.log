@@ -1,0 +1,132 @@
+--------------
+USE codegym_smartfactory
+--------------
+
+Query OK, 0 rows affected (0.002 sec)
+
+--------------
+SET SESSION information_schema_stats_expiry=0
+--------------
+
+Query OK, 0 rows affected (0.001 sec)
+
+--------------
+SELECT 'BEFORE' AS phase, TABLE_ROWS, DATA_LENGTH, INDEX_LENGTH,
+       ROUND(INDEX_LENGTH/1024/1024,2) AS index_mb
+FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='SensorLogs'
+--------------
+
++--------+------------+-------------+--------------+----------+
+| phase  | TABLE_ROWS | DATA_LENGTH | INDEX_LENGTH | index_mb |
++--------+------------+-------------+--------------+----------+
+| BEFORE |      98534 |     5783552 |      4734976 |     4.52 |
++--------+------------+-------------+--------------+----------+
+1 row in set (0.012 sec)
+
+--------------
+EXPLAIN SELECT temperature, humidity, status FROM SensorLogs
+WHERE sensor_id=105 AND recorded_at >= '2026-06-20'
+--------------
+
++----+-------------+------------+------------+-------+------------------+------------------+---------+------+------+----------+--------------------------+
+| id | select_type | table      | partitions | type  | possible_keys    | key              | key_len | ref  | rows | filtered | Extra                    |
++----+-------------+------------+------------+-------+------------------+------------------+---------+------+------+----------+--------------------------+
+|  1 | SIMPLE      | SensorLogs | NULL       | range | idx_fat_covering | idx_fat_covering | 9       | NULL |   72 |   100.00 | Using where; Using index |
++----+-------------+------------+------------+-------+------------------+------------------+---------+------+------+----------+--------------------------+
+1 row in set, 1 warning (0.005 sec)
+
+--------------
+-- Add the replacement and drop the audited old index in one rebuild operation.
+--------------
+
+Query OK, 0 rows affected (0.001 sec)
+
+--------------
+ALTER TABLE SensorLogs DROP INDEX idx_fat_covering,
+    ADD INDEX idx_lean_search(sensor_id, recorded_at)
+--------------
+
+Query OK, 0 rows affected (2.052 sec)
+Records: 0  Duplicates: 0  Warnings: 0
+
+--------------
+ANALYZE TABLE SensorLogs
+--------------
+
++---------------------------------+---------+----------+----------+
+| Table                           | Op      | Msg_type | Msg_text |
++---------------------------------+---------+----------+----------+
+| codegym_smartfactory.sensorlogs | analyze | status   | OK       |
++---------------------------------+---------+----------+----------+
+1 row in set (0.707 sec)
+
+--------------
+-- Run storage_snapshot.sql in a NEW connection to avoid stale pre-DDL engine statistics.
+--------------
+
+Query OK, 0 rows affected (0.001 sec)
+
+--------------
+SHOW INDEX FROM SensorLogs
+--------------
+
++------------+------------+-----------------+--------------+-------------+-----------+-------------+----------+--------+------+------------+---------+---------------+---------+------------+
+| Table      | Non_unique | Key_name        | Seq_in_index | Column_name | Collation | Cardinality | Sub_part | Packed | Null | Index_type | Comment | Index_comment | Visible | Expression |
++------------+------------+-----------------+--------------+-------------+-----------+-------------+----------+--------+------+------------+---------+---------------+---------+------------+
+| sensorlogs |          0 | PRIMARY         |            1 | log_id      | A         |       99900 |     NULL |   NULL |      | BTREE      |         |               | YES     | NULL       |
+| sensorlogs |          1 | idx_lean_search |            1 | sensor_id   | A         |         993 |     NULL |   NULL |      | BTREE      |         |               | YES     | NULL       |
+| sensorlogs |          1 | idx_lean_search |            2 | recorded_at | A         |       99900 |     NULL |   NULL |      | BTREE      |         |               | YES     | NULL       |
++------------+------------+-----------------+--------------+-------------+-----------+-------------+----------+--------+------+------------+---------+---------------+---------+------------+
+3 rows in set (0.012 sec)
+
+--------------
+EXPLAIN SELECT temperature, humidity, status FROM SensorLogs
+WHERE sensor_id=105 AND recorded_at >= '2026-06-20'
+--------------
+
++----+-------------+------------+------------+-------+-----------------+-----------------+---------+------+------+----------+-----------------------+
+| id | select_type | table      | partitions | type  | possible_keys   | key             | key_len | ref  | rows | filtered | Extra                 |
++----+-------------+------------+------------+-------+-----------------+-----------------+---------+------+------+----------+-----------------------+
+|  1 | SIMPLE      | SensorLogs | NULL       | range | idx_lean_search | idx_lean_search | 9       | NULL |   72 |   100.00 | Using index condition |
++----+-------------+------------+------------+-------+-----------------+-----------------+---------+------+------+----------+-----------------------+
+1 row in set, 1 warning (0.005 sec)
+
+--------------
+SELECT COUNT(*) AS returned_rows FROM SensorLogs
+WHERE sensor_id=105 AND recorded_at >= '2026-06-20'
+--------------
+
++---------------+
+| returned_rows |
++---------------+
+|            72 |
++---------------+
+1 row in set (0.002 sec)
+
+Bye
+--------------
+USE codegym_smartfactory
+--------------
+
+Query OK, 0 rows affected (0.002 sec)
+
+--------------
+SET SESSION information_schema_stats_expiry=0
+--------------
+
+Query OK, 0 rows affected (0.001 sec)
+
+--------------
+SELECT 'AFTER (new connection)' AS phase, TABLE_ROWS, DATA_LENGTH, INDEX_LENGTH,
+       ROUND(INDEX_LENGTH/1024/1024,2) AS index_mb
+FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='SensorLogs'
+--------------
+
++------------------------+------------+-------------+--------------+----------+
+| phase                  | TABLE_ROWS | DATA_LENGTH | INDEX_LENGTH | index_mb |
++------------------------+------------+-------------+--------------+----------+
+| AFTER (new connection) |      99900 |     5783552 |      2637824 |     2.52 |
++------------------------+------------+-------------+--------------+----------+
+1 row in set (0.010 sec)
+
+Bye
